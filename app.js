@@ -11,6 +11,42 @@ function escapeHTML(str) {
     .replace(/'/g, "&#039;");
 }
 
+/* Text cleaner: strips control chars / zero-width chars, collapses whitespace, caps length */
+function cleanText(str, max = 100) {
+  if (typeof str !== "string") return "";
+  return str
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2066-\u2069\uFEFF]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+/* Phone numbers inside tel: links keep only digits and + */
+function safeTel(num) {
+  return String(num == null ? "" : num).replace(/[^\d+]/g, "");
+}
+
+/* localStorage can throw (Safari private mode, blocked storage, full quota) - never let it crash the app */
+function safeGet(key) {
+  try { return window.localStorage.getItem(key); } catch (e) { return null; }
+}
+function safeSet(key, value) {
+  try { window.localStorage.setItem(key, value); return true; } catch (e) { return false; }
+}
+function safeRemove(key) {
+  try { window.localStorage.removeItem(key); } catch (e) { /* ignore */ }
+}
+function safeParse(raw, fallback) {
+  if (typeof raw !== "string" || raw.length > 400000) return fallback;
+  try { return JSON.parse(raw); } catch (e) { return fallback; }
+}
+function isGoodCoord(c) {
+  return !!c && typeof c.lat === "number" && typeof c.lng === "number" &&
+    isFinite(c.lat) && isFinite(c.lng) &&
+    Math.abs(c.lat) <= 90 && Math.abs(c.lng) <= 180;
+}
+const BLOOD_GROUP_RE = /^(A|B|AB|O)[+-]$/;
+
 function formatINR(num) {
   return "₹" + Math.round(num).toLocaleString("en-IN");
 }
@@ -26,6 +62,8 @@ function showToast(msg) {
 function closeModal() {
   const m = document.getElementById("appModal");
   if (m) m.classList.remove("open");
+  const c = document.getElementById("appModalContent");
+  if (c) c.innerHTML = "";
 }
 
 /* =========================================================================
@@ -102,19 +140,29 @@ const PROCEDURES = [
 /* =========================================================================
    3. STATE: LOCATION, GPS AUTO-DETECT & USER AUTH PROFILE
 ========================================================================= */
-let currentZone = localStorage.getItem("hx_zone") || "Himayath Sagar (Lords College)";
-let customCoords = JSON.parse(localStorage.getItem("hx_coords") || "null");
-let gpsConnected = localStorage.getItem("hx_gps_connected") === "true";
+const DEFAULT_ZONE = "Himayath Sagar (Lords College)";
+let currentZone = (() => {
+  const z = safeGet("hx_zone");
+  return z && Object.prototype.hasOwnProperty.call(HYDERABAD_ZONES, z) ? z : DEFAULT_ZONE;
+})();
+let customCoords = (() => {
+  const c = safeParse(safeGet("hx_coords"), null);
+  return isGoodCoord(c) ? { lat: c.lat, lng: c.lng } : null;
+})();
+let gpsConnected = safeGet("hx_gps_connected") === "true";
 
-let currentUser = JSON.parse(localStorage.getItem("hx_user") || "null") || {
-  mode: "guest",
-  name: "Guest User",
-  aadhaarMasked: null,
-  role: "Patient"
-};
+const GUEST_USER = { mode: "guest", name: "Guest User", aadhaarMasked: null, role: "Patient" };
+let currentUser = (() => {
+  const u = safeParse(safeGet("hx_user"), null);
+  if (!u || typeof u !== "object") return { ...GUEST_USER };
+  const mode = ["guest", "aadhaar", "member"].includes(u.mode) ? u.mode : "guest";
+  const name = cleanText(u.name, 60) || "Guest User";
+  const masked = typeof u.aadhaarMasked === "string" && /^(XXXX-XXXX-\d{4}|ABHA-Linked)$/.test(u.aadhaarMasked) ? u.aadhaarMasked : null;
+  return { mode, name, aadhaarMasked: masked, role: "Patient" };
+})();
 
 function getOriginCoords() {
-  if (customCoords && customCoords.lat) return customCoords;
+  if (isGoodCoord(customCoords)) return customCoords;
   return HYDERABAD_ZONES[currentZone] || HYDERABAD_ZONES["Himayath Sagar (Lords College)"];
 }
 
@@ -149,9 +197,9 @@ function connectLiveGPS(silent = false) {
     pos => {
       const { latitude, longitude } = pos.coords;
       customCoords = { lat: latitude, lng: longitude };
-      localStorage.setItem("hx_coords", JSON.stringify(customCoords));
+      safeSet("hx_coords", JSON.stringify(customCoords));
       gpsConnected = true;
-      localStorage.setItem("hx_gps_connected", "true");
+      safeSet("hx_gps_connected", "true");
 
       // Snap to nearest known Hyderabad zone name
       let nearestName = currentZone;
@@ -161,7 +209,7 @@ function connectLiveGPS(silent = false) {
         if (d < minD) { minD = d; nearestName = zName; }
       });
       currentZone = nearestName;
-      localStorage.setItem("hx_zone", currentZone);
+      safeSet("hx_zone", currentZone);
 
       updateLocationUI();
       refreshAllPageViews();
@@ -169,7 +217,7 @@ function connectLiveGPS(silent = false) {
     },
     () => {
       gpsConnected = false;
-      localStorage.setItem("hx_gps_connected", "false");
+      safeSet("hx_gps_connected", "false");
       updateLocationUI();
       if (!silent) showToast("GPS permission blocked. Using selected Hyderabad area pin.");
     },
@@ -201,7 +249,7 @@ function updateLocationUI() {
 function handleLocationTyping(val) {
   const box = document.getElementById("locSuggestionsBox");
   if (!box) return;
-  const q = val.trim().toLowerCase();
+  const q = cleanText(String(val || ""), 60).toLowerCase();
   const zones = Object.keys(HYDERABAD_ZONES);
 
   // Auto-correct fuzzy match
@@ -213,18 +261,19 @@ function handleLocationTyping(val) {
   }
 
   box.innerHTML = (matches.length ? matches : zones).slice(0, 7).map(z =>
-    `<div class="loc-item" onclick="selectZoneFromAutocomplete('${escapeHTML(z)}')">📍 ${escapeHTML(z)}</div>`
+    `<div class="loc-item" role="option" data-zone="${escapeHTML(z)}" onclick="selectZoneFromAutocomplete(this.dataset.zone)">📍 ${escapeHTML(z)}</div>`
   ).join("");
   box.classList.add("open");
 }
 
 function selectZoneFromAutocomplete(zoneName) {
+  if (!Object.prototype.hasOwnProperty.call(HYDERABAD_ZONES, zoneName)) return;
   currentZone = zoneName;
   customCoords = null;
   gpsConnected = false;
-  localStorage.setItem("hx_zone", currentZone);
-  localStorage.removeItem("hx_coords");
-  localStorage.setItem("hx_gps_connected", "false");
+  safeSet("hx_zone", currentZone);
+  safeRemove("hx_coords");
+  safeSet("hx_gps_connected", "false");
   const box = document.getElementById("locSuggestionsBox");
   if (box) box.classList.remove("open");
   updateLocationUI();
@@ -273,7 +322,7 @@ function renderProfileHeader() {
 
 function continueAsGuest() {
   currentUser = { mode: "guest", name: "Guest User", aadhaarMasked: null, role: "Patient" };
-  localStorage.setItem("hx_user", JSON.stringify(currentUser));
+  safeSet("hx_user", JSON.stringify(currentUser));
   renderProfileHeader();
   toggleProfileDropdown();
   showToast("Continuing as Guest User.");
@@ -292,15 +341,15 @@ function openAuthModal(type) {
       <div style="display:grid;gap:12px;">
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Full Name (as on Aadhaar)</label>
-          <input id="aadhaarName" class="input-std" value="Syed Zaahak Husain" />
+          <input id="aadhaarName" class="input-std" maxlength="60" autocomplete="name" value="Syed Zaahak Husain" />
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">12-Digit Aadhaar Number</label>
-          <input id="aadhaarNum" class="input-std mono" maxlength="14" placeholder="XXXX XXXX 4829" value="8492 7104 4829" />
+          <input id="aadhaarNum" class="input-std mono" maxlength="14" inputmode="numeric" autocomplete="off" placeholder="XXXX XXXX 4829" value="8492 7104 4829" />
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">6-Digit Aadhaar OTP (Demo: 123456)</label>
-          <input id="aadhaarOtp" class="input-std mono" maxlength="6" value="123456" />
+          <input id="aadhaarOtp" class="input-std mono" maxlength="6" inputmode="numeric" autocomplete="one-time-code" value="123456" />
         </div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
           <button class="btn-outline" onclick="closeModal()">Cancel</button>
@@ -316,11 +365,11 @@ function openAuthModal(type) {
       <div style="display:grid;gap:12px;">
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Your Name</label>
-          <input id="loginNameInput" class="input-std" value="Syed Zaahak Husain" />
+          <input id="loginNameInput" class="input-std" maxlength="60" autocomplete="name" value="Syed Zaahak Husain" />
         </div>
         <div>
           <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Mobile / Email</label>
-          <input id="loginContactInput" class="input-std" value="+91 98490 XXXXX" />
+          <input id="loginContactInput" class="input-std" maxlength="60" autocomplete="off" value="+91 98490 XXXXX" />
         </div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
           <button class="btn-outline" onclick="closeModal()">Cancel</button>
@@ -333,24 +382,29 @@ function openAuthModal(type) {
 }
 
 function submitAadhaarLogin() {
-  const name = (document.getElementById("aadhaarName")?.value || "Verified Citizen").trim();
+  const name = cleanText(document.getElementById("aadhaarName")?.value || "", 60) || "Verified Citizen";
   const rawNum = (document.getElementById("aadhaarNum")?.value || "").replace(/\D/g, "");
-  if (rawNum.length < 4) {
+  const otp = (document.getElementById("aadhaarOtp")?.value || "").trim();
+  if (rawNum.length !== 12) {
     showToast("Please enter a valid 12-digit Aadhaar number.");
+    return;
+  }
+  if (!/^\d{6}$/.test(otp)) {
+    showToast("Please enter the 6-digit OTP.");
     return;
   }
   const masked = "XXXX-XXXX-" + rawNum.slice(-4);
   currentUser = { mode: "aadhaar", name, aadhaarMasked: masked, role: "Patient" };
-  localStorage.setItem("hx_user", JSON.stringify(currentUser));
+  safeSet("hx_user", JSON.stringify(currentUser));
   closeModal();
   renderProfileHeader();
   showToast(`Aadhaar Verified (${masked}). Welcome, ${name}!`);
 }
 
 function submitStandardLogin() {
-  const name = (document.getElementById("loginNameInput")?.value || "HealthX User").trim();
+  const name = cleanText(document.getElementById("loginNameInput")?.value || "", 60) || "HealthX User";
   currentUser = { mode: "member", name, aadhaarMasked: "ABHA-Linked", role: "Patient" };
-  localStorage.setItem("hx_user", JSON.stringify(currentUser));
+  safeSet("hx_user", JSON.stringify(currentUser));
   closeModal();
   renderProfileHeader();
   showToast(`Signed in as ${name}`);
@@ -384,8 +438,8 @@ function openAmbulanceModal() {
             <span style="font-size:12px;color:var(--navy-muted);">📍 ${h.distanceKm} km away (~${h.driveMins} mins ETA) •${h.icuBeds} ICU Beds</span>
           </div>
           <div style="display:flex;gap:8px;">
-            <a href="tel:${escapeHTML(h.phone)}" class="btn-outline" style="padding:7px 12px;">📞 ${escapeHTML(h.phone)}</a>
-            <button class="btn-ambulance" style="padding:7px 14px;font-size:12px;" onclick="dispatchHospitalAmbulance('${escapeHTML(h.name)}',${h.driveMins})">
+            <a href="tel:${safeTel(h.phone)}" class="btn-outline" style="padding:7px 12px;">📞 ${escapeHTML(h.phone)}</a>
+            <button class="btn-ambulance" style="padding:7px 14px;font-size:12px;" data-hosp="${escapeHTML(h.name)}" data-eta="${Number(h.driveMins) || 0}" onclick="dispatchHospitalAmbulance(this.dataset.hosp, Number(this.dataset.eta))">
               🚑 Dispatch (${h.driveMins}m)
             </button>
           </div>
@@ -483,7 +537,7 @@ function renderSymptomMatches() {
             <strong>Treats:</strong> ${escapeHTML(d.treats)}
           </div>
         </div>
-        <button class="btn-navy" style="width:100%;" onclick="bookAppointmentQuick('${escapeHTML(d.name)}', '${escapeHTML(hosp.name)}', ${d.fee})">
+        <button class="btn-navy" style="width:100%;" data-doc="${escapeHTML(d.name)}" data-hosp="${escapeHTML(hosp.name)}" data-fee="${Number(d.fee) || 0}" onclick="bookAppointmentQuick(this.dataset.doc, this.dataset.hosp, Number(this.dataset.fee))">
           Book Consultation (₹${d.fee})
         </button>
       </article>
@@ -518,7 +572,7 @@ function renderSymptomMatches() {
         <a class="btn-navy" style="flex:1;" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${h.lat},${h.lng}">
           Directions ↗
         </a>
-        <a href="tel:${escapeHTML(h.phone)}" class="btn-outline">📞 Call</a>
+        <a href="tel:${safeTel(h.phone)}" class="btn-outline">📞 Call</a>
       </div>
     </article>
   `).join("");
@@ -571,7 +625,7 @@ function renderCategoryHospitals() {
         <a class="btn-navy" style="flex:1;" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${p.lat},${p.lng}">
           Directions (${p.driveMins} mins) ↗
         </a>
-        <a href="tel:${escapeHTML(p.phone)}" class="btn-outline">📞 Call</a>
+        <a href="tel:${safeTel(p.phone)}" class="btn-outline">📞 Call</a>
       </div>
     </article>
   `).join("");
@@ -621,7 +675,7 @@ function renderBloodBanks() {
           </div>
         </div>
         <div style="display:flex;gap:8px;">
-          <button class="btn-navy" style="flex:1;" onclick="reserveBloodUnits('${escapeHTML(h.name)}')">
+          <button class="btn-navy" style="flex:1;" data-hosp="${escapeHTML(h.name)}" onclick="reserveBloodUnits(this.dataset.hosp)">
             Reserve Transfusion Unit
           </button>
           <a class="btn-outline" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${h.lat},${h.lng}">
@@ -643,7 +697,7 @@ function reserveBloodUnits(hospName) {
 ========================================================================= */
 let activeFamilyId = "fm1";
 
-let UNIFIED_FAMILY_LOCKER = JSON.parse(localStorage.getItem("hx_unified_locker") || "null") || [
+const DEFAULT_LOCKER = [
   {
     id: "fm1",
     name: "Syed Zaahak Husain (Self)",
@@ -711,13 +765,47 @@ let UNIFIED_FAMILY_LOCKER = JSON.parse(localStorage.getItem("hx_unified_locker")
   }
 ];
 
+function cleanLockerList(list, fields, limit = 60) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, limit).map(it => {
+    const o = {};
+    fields.forEach(f => { o[f] = cleanText(it && it[f], 120); });
+    return o;
+  }).filter(o => o[fields[0]]);
+}
+
+function loadLocker() {
+  const saved = safeParse(safeGet("hx_unified_locker"), null);
+  if (!Array.isArray(saved) || !saved.length) return JSON.parse(JSON.stringify(DEFAULT_LOCKER));
+  const seen = new Set();
+  const out = [];
+  saved.slice(0, 12).forEach(m => {
+    if (!m || typeof m !== "object") return;
+    const id = typeof m.id === "string" && /^[A-Za-z0-9_-]{1,30}$/.test(m.id) ? m.id : null;
+    const name = cleanText(m.name, 60);
+    if (!id || !name || seen.has(id)) return;
+    seen.add(id);
+    out.push({
+      id, name,
+      relation: cleanText(m.relation, 60) || "Family Member",
+      blood: BLOOD_GROUP_RE.test(String(m.blood)) ? m.blood : "—",
+      reports: cleanLockerList(m.reports, ["title", "source", "date", "type"]),
+      certificates: cleanLockerList(m.certificates, ["title", "issuer", "date"]),
+      medications: cleanLockerList(m.medications, ["name", "schedule", "condition"])
+    });
+  });
+  return out.length ? out : JSON.parse(JSON.stringify(DEFAULT_LOCKER));
+}
+
+let UNIFIED_FAMILY_LOCKER = loadLocker();
+
 function renderUnifiedLocker() {
   const famBar = document.getElementById("unifiedFamilySelector");
   const lockerBody = document.getElementById("unifiedLockerContent");
   if (!famBar || !lockerBody) return;
 
   famBar.innerHTML = UNIFIED_FAMILY_LOCKER.map(m => `
-    <div class="card ${m.id === activeFamilyId ? 'active-card' : ''}" style="cursor:pointer;padding:16px;" onclick="selectLockerMember('${m.id}')">
+    <div class="card ${m.id === activeFamilyId ? 'active-card' : ''}" style="cursor:pointer;padding:16px;" data-fid="${escapeHTML(m.id)}" role="button" tabindex="0" onclick="selectLockerMember(this.dataset.fid)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectLockerMember(this.dataset.fid);}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <span class="badge-navy ${m.id === activeFamilyId ? 'solid' : ''}">${escapeHTML(m.relation)}</span>
         <strong class="mono" style="font-size:12px;">Blood: ${escapeHTML(m.blood)}</strong>
@@ -791,6 +879,7 @@ function renderUnifiedLocker() {
 }
 
 function selectLockerMember(id) {
+  if (!UNIFIED_FAMILY_LOCKER.some(m => m.id === id)) return;
   activeFamilyId = id;
   renderUnifiedLocker();
 }
@@ -811,11 +900,11 @@ function openAddLockerItemModal() {
       </div>
       <div>
         <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Title / Medicine Name</label>
-        <input id="newLockerTitle" class="input-std" placeholder="e.g. Complete Blood Picture (CBP) or Birth Certificate" />
+        <input id="newLockerTitle" class="input-std" maxlength="100" placeholder="e.g. Complete Blood Picture (CBP) or Birth Certificate" />
       </div>
       <div>
         <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Hospital / Issuer / Schedule</label>
-        <input id="newLockerSub" class="input-std" placeholder="e.g. Vijaya Diagnostics or 09:00 AM Daily" />
+        <input id="newLockerSub" class="input-std" maxlength="100" placeholder="e.g. Vijaya Diagnostics or 09:00 AM Daily" />
       </div>
       <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
         <button class="btn-outline" onclick="closeModal()">Cancel</button>
@@ -828,21 +917,27 @@ function openAddLockerItemModal() {
 
 function saveNewLockerItem() {
   const cat = document.getElementById("newLockerCat").value;
-  const title = (document.getElementById("newLockerTitle").value || "").trim();
-  const sub = (document.getElementById("newLockerSub").value || "Verified").trim();
+  const title = cleanText(document.getElementById("newLockerTitle").value || "", 100);
+  const sub = cleanText(document.getElementById("newLockerSub").value || "", 100) || "Verified";
+  if (!["report", "cert", "med"].includes(cat)) return;
   if (!title) {
     showToast("Please enter a title.");
     return;
   }
   const active = UNIFIED_FAMILY_LOCKER.find(m => m.id === activeFamilyId) || UNIFIED_FAMILY_LOCKER[0];
+  const list = cat === "report" ? active.reports : cat === "cert" ? active.certificates : active.medications;
+  if (list.length >= 60) {
+    showToast("This section is full. Please remove older items first.");
+    return;
+  }
   if (cat === "report") active.reports.unshift({ title, source: sub, date: "15 Oct 2026", type: "Report" });
   if (cat === "cert") active.certificates.unshift({ title, issuer: sub, date: "Verified" });
   if (cat === "med") active.medications.unshift({ name: title, schedule: sub, condition: "Prescribed" });
 
-  localStorage.setItem("hx_unified_locker", JSON.stringify(UNIFIED_FAMILY_LOCKER));
+  const savedOk = safeSet("hx_unified_locker", JSON.stringify(UNIFIED_FAMILY_LOCKER));
   closeModal();
   renderUnifiedLocker();
-  showToast("Saved to Unified Family Locker.");
+  showToast(savedOk ? "Saved to Unified Family Locker." : "Saved for this session only (browser storage is unavailable).");
 }
 
 function openAddFamilyModal() {
@@ -852,15 +947,15 @@ function openAddFamilyModal() {
     <div style="display:grid;gap:12px;">
       <div>
         <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Full Name</label>
-        <input id="newFamName" class="input-std" placeholder="e.g. Grandmother / Younger Sibling" />
+        <input id="newFamName" class="input-std" maxlength="60" placeholder="e.g. Grandmother / Younger Sibling" />
       </div>
       <div>
         <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Relation &amp; Age</label>
-        <input id="newFamRel" class="input-std" value="Family Member • 65 Yrs" />
+        <input id="newFamRel" class="input-std" maxlength="60" value="Family Member • 65 Yrs" />
       </div>
       <div>
         <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Blood Group</label>
-        <input id="newFamBlood" class="input-std" value="O+" />
+        <input id="newFamBlood" class="input-std" maxlength="3" autocapitalize="characters" value="O+" />
       </div>
       <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
         <button class="btn-outline" onclick="closeModal()">Cancel</button>
@@ -872,9 +967,17 @@ function openAddFamilyModal() {
 }
 
 function saveNewFamilyProfile() {
-  const name = (document.getElementById("newFamName").value || "Family Member").trim();
-  const relation = (document.getElementById("newFamRel").value || "Relative").trim();
-  const blood = (document.getElementById("newFamBlood").value || "O+").trim();
+  const name = cleanText(document.getElementById("newFamName").value || "", 60) || "Family Member";
+  const relation = cleanText(document.getElementById("newFamRel").value || "", 60) || "Relative";
+  const blood = cleanText(document.getElementById("newFamBlood").value || "O+", 4).toUpperCase();
+  if (!BLOOD_GROUP_RE.test(blood)) {
+    showToast("Enter a valid blood group such as O+, A-, B+ or AB+.");
+    return;
+  }
+  if (UNIFIED_FAMILY_LOCKER.length >= 12) {
+    showToast("Family limit reached (12 members).");
+    return;
+  }
   const id = "fm" + Date.now();
   UNIFIED_FAMILY_LOCKER.push({
     id, name, relation, blood,
@@ -882,7 +985,7 @@ function saveNewFamilyProfile() {
     certificates: [],
     medications: []
   });
-  localStorage.setItem("hx_unified_locker", JSON.stringify(UNIFIED_FAMILY_LOCKER));
+  safeSet("hx_unified_locker", JSON.stringify(UNIFIED_FAMILY_LOCKER));
   activeFamilyId = id;
   closeModal();
   renderUnifiedLocker();
@@ -913,17 +1016,17 @@ function renderCostEstimatorPage() {
     const total = Math.round(proc.basePrice * p.priceMultiplier);
     return `
       <tr>
-        <td>
+        <td data-label="Hospital / Center">
           <strong>${escapeHTML(p.name)}</strong>
           <div style="font-size:12px;color:var(--navy-muted);">${escapeHTML(p.zone)} • ★ ${p.rating}</div>
         </td>
-        <td class="mono">📍 ${p.distanceKm} km (~${p.driveMins}m)</td>
-        <td class="mono">${formatINR(total * 0.55)}</td>
-        <td class="mono">${formatINR(total * 0.25)}</td>
-        <td class="mono">${formatINR(total * 0.20)}</td>
-        <td class="mono" style="font-weight:800;font-size:15px;">${formatINR(total)}</td>
-        <td>
-          <button class="btn-navy" style="padding:7px 14px;font-size:12px;" onclick="showToast('Locked estimate of ${formatINR(total)} at ${escapeHTML(p.name)}')">
+        <td class="mono" data-label="Distance">📍 ${p.distanceKm} km (~${p.driveMins}m)</td>
+        <td class="mono" data-label="Procedure / Scan">${formatINR(total * 0.55)}</td>
+        <td class="mono" data-label="Anesthesia / Reporting">${formatINR(total * 0.25)}</td>
+        <td class="mono" data-label="Room &amp; Consumables">${formatINR(total * 0.20)}</td>
+        <td class="mono" data-label="Total Estimate" style="font-weight:800;font-size:15px;">${formatINR(total)}</td>
+        <td data-label="Action">
+          <button class="btn-navy" style="padding:7px 14px;font-size:12px;" data-msg="${escapeHTML('Locked estimate of ' + formatINR(total) + ' at ' + p.name)}" onclick="showToast(this.dataset.msg)">
             Lock Estimate
           </button>
         </td>
@@ -935,10 +1038,30 @@ function renderCostEstimatorPage() {
 /* =========================================================================
    11. FEEDBACK PAGE (feedback.html)
 ========================================================================= */
-let FEEDBACK_LIST = JSON.parse(localStorage.getItem("hx_feedbacks") || "null") || [
+const DEFAULT_FEEDBACK = [
   { name: "Mohammed Tariq (Attendant)", hosp: "Olive Hospitals, Mehdipatnam", role: "Patient Family", rating: "5 / 5", text: "Comparing MRI costs at Vijaya Diagnostics vs hospital OPD saved our family ₹2,800 immediately.", date: "14 Oct 2026" },
   { name: "Dr. B. Chandrasekhar", hosp: "Lifecare Hospital, Sun City", role: "Consultant Doctor", rating: "5 / 5", text: "Having the patient's past blood reports and active medications in one unified locker saves 5+ minutes per consultation.", date: "14 Oct 2026" }
 ];
+
+const FEEDBACK_ROLES = ["Patient / Family", "Consultant Doctor", "Patient Family"];
+const FEEDBACK_RATINGS = ["5 / 5", "4 / 5", "3 / 5"];
+
+function loadFeedback() {
+  const saved = safeParse(safeGet("hx_feedbacks"), null);
+  if (!Array.isArray(saved) || !saved.length) return DEFAULT_FEEDBACK.slice();
+  const out = saved.slice(0, 50).map(f => ({
+    name: cleanText(f && f.name, 60),
+    hosp: cleanText(f && f.hosp, 80),
+    role: cleanText(f && f.role, 40),
+    rating: FEEDBACK_RATINGS.includes(f && f.rating) ? f.rating : "5 / 5",
+    text: cleanText(f && f.text, 500),
+    date: cleanText(f && f.date, 20)
+  })).filter(f => f.name && f.text);
+  return out.length ? out : DEFAULT_FEEDBACK.slice();
+}
+
+let FEEDBACK_LIST = loadFeedback();
+let lastFeedbackAt = 0;
 
 function renderFeedbackPage() {
   const listEl = document.getElementById("feedbackEntriesList");
@@ -961,22 +1084,63 @@ function renderFeedbackPage() {
 
 function submitFeedbackForm(ev) {
   ev.preventDefault();
-  const name = (document.getElementById("fbName")?.value || "Anonymous").trim();
-  const role = document.getElementById("fbRole")?.value || "Patient / Family";
-  const hosp = (document.getElementById("fbHosp")?.value || "Hyderabad Hospital").trim();
-  const rating = document.getElementById("fbRating")?.value || "5 / 5";
-  const text = (document.getElementById("fbText")?.value || "").trim();
+  const name = cleanText(document.getElementById("fbName")?.value || "", 60) || "Anonymous";
+  const roleRaw = document.getElementById("fbRole")?.value || "";
+  const role = ["Patient / Family", "Consultant Doctor"].includes(roleRaw) ? roleRaw : "Patient / Family";
+  const hosp = cleanText(document.getElementById("fbHosp")?.value || "", 80) || "Hyderabad Hospital";
+  const ratingRaw = document.getElementById("fbRating")?.value || "";
+  const rating = FEEDBACK_RATINGS.includes(ratingRaw) ? ratingRaw : "5 / 5";
+  const text = cleanText(document.getElementById("fbText")?.value || "", 500);
+
+  if (Date.now() - lastFeedbackAt < 8000) {
+    showToast("Please wait a few seconds before posting again.");
+    return;
+  }
 
   if (text.length < 5) {
     showToast("Please write a short feedback message.");
     return;
   }
 
+  lastFeedbackAt = Date.now();
   FEEDBACK_LIST.unshift({ name, role, hosp, rating, text, date: "15 Oct 2026" });
-  localStorage.setItem("hx_feedbacks", JSON.stringify(FEEDBACK_LIST));
+  FEEDBACK_LIST = FEEDBACK_LIST.slice(0, 50);
+  safeSet("hx_feedbacks", JSON.stringify(FEEDBACK_LIST));
   document.getElementById("fbText").value = "";
   renderFeedbackPage();
   showToast("Thank you! Your feedback has been published.");
+}
+
+/* =========================================================================
+   11b. MOBILE / TABLET ENHANCEMENTS (no visual changes on desktop)
+========================================================================= */
+function initMobileEnhancements() {
+  // Centre the active tab inside the horizontally scrolling nav bar
+  const nav = document.querySelector(".nav-links");
+  const active = nav && nav.querySelector(".nav-link.active");
+  if (nav && active && nav.scrollWidth > nav.clientWidth) {
+    nav.scrollLeft = Math.max(0, active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2);
+  }
+
+  // Modal: dialog semantics, Escape to close, lock page scroll behind it
+  const modal = document.getElementById("appModal");
+  const box = document.getElementById("appModalContent");
+  if (box) {
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-modal", "true");
+  }
+  if (modal && "MutationObserver" in window) {
+    new MutationObserver(() => {
+      document.body.classList.toggle("hx-modal-open", modal.classList.contains("open"));
+    }).observe(modal, { attributes: true, attributeFilter: ["class"] });
+  }
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      closeModal();
+      document.getElementById("profileDropdown")?.classList.remove("open");
+      document.getElementById("locSuggestionsBox")?.classList.remove("open");
+    }
+  });
 }
 
 /* =========================================================================
@@ -1027,10 +1191,11 @@ window.addEventListener("DOMContentLoaded", () => {
   updateLocationUI();
   renderProfileHeader();
   refreshAllPageViews();
+  initMobileEnhancements();
 
   // Auto-attempt GPS connection on first visit
-  if (!localStorage.getItem("hx_gps_prompted")) {
-    localStorage.setItem("hx_gps_prompted", "true");
+  if (!safeGet("hx_gps_prompted")) {
+    safeSet("hx_gps_prompted", "true");
     connectLiveGPS(true);
   }
 

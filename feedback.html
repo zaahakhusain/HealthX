@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F2537" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>HealthX | Patient & Doctor Feedback</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css" />
@@ -68,8 +72,7 @@
         <a href="./feedback.html" class="nav-link active">Feedback</a>
         <a href="./fitness.html" class="nav-link">Fitness Tracker</a>
      <a href="./about.html" class="nav-link" data-i18n="navAbout">About</a>
-      
-
+      </nav>
     </div>
   </header>
 
@@ -90,7 +93,7 @@
         <form onsubmit="submitFeedbackForm(event)" style="display:grid;gap:12px;">
           <div>
             <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Your Name</label>
-            <input id="fbName" class="input-std" placeholder="e.g. Syed Zaahak / Dr. Ramesh" required />
+            <input id="fbName" class="input-std" maxlength="60" placeholder="e.g. Syed Zaahak / Dr. Ramesh" required />
           </div>
 
           <div class="grid-2" style="gap:10px;">
@@ -113,12 +116,12 @@
 
           <div>
             <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Hospital / Diagnostic Lab Visited</label>
-            <input id="fbHosp" class="input-std" placeholder="e.g. Olive Hospitals / Vijaya Diagnostics / Germanten" required />
+            <input id="fbHosp" class="input-std" maxlength="80" placeholder="e.g. Olive Hospitals / Vijaya Diagnostics / Germanten" required />
           </div>
 
           <div>
             <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px;">Feedback on Billing Clarity, Reports, or Care</label>
-            <textarea id="fbText" class="input-std" rows="4" placeholder="Write what stood out about price clarity, lab savings, or the digital locker..." required></textarea>
+            <textarea id="fbText" class="input-std" maxlength="500" rows="4" placeholder="Write what stood out about price clarity, lab savings, or the digital locker..." required></textarea>
           </div>
 
           <button type="submit" class="btn-navy">Publish Verified Feedback</button>

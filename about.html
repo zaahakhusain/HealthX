@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F2537" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>About HealthX</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+
+  <style>
+    .team-photo {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: var(--bg-soft);
+      border: 1.5px solid var(--navy-border);
+    }
+
+    .team-photo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .team-details-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .team-role-box h3 {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--navy-deep);
+      margin: 8px 0 4px;
+    }
+
+    .team-role-box p {
+      font-size: 13.5px;
+      color: var(--navy-slate);
+      line-height: 1.6;
+    }
+
+    @media (max-width: 960px) {
+      .team-details-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .team-details-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- GPS AUTO-CONNECT PROMPT BAR (Matches all other pages) -->
+  <div class="gps-prompt-banner">
+    <div class="gps-prompt-inner">
+      <div id="gpsBannerText">
+        <span class="gps-status-dot"></span><strong>GPS Not Connected:</strong> Connect Live GPS to auto-detect the nearest doctors and hospitals around you.
+      </div>
+      <button id="gpsConnectBtn" class="btn-outline" style="padding:5px 12px;font-size:12px;" onclick="connectLiveGPS(false)">
+        📡 Connect Live GPS Now
+      </button>
+    </div>
+  </div>
+
+  <!-- HEADER (Matches index.html, costs.html, bloodbank.html, etc.) -->
+  <header class="navbar">
+    <div class="container">
+      <div class="navbar-top">
+        <a href="./index.html" class="brand">
+          <span class="brand-mark">HX</span>
+          <span>
+            <span class="brand-title">HealthX</span>
+            <span class="brand-sub">Transparent Healthcare, Right Around the Corner.</span>
+          </span>
+        </a>
+
+        <div class="header-controls">
+          <div class="location-box" title="Type your Hyderabad area (auto-completes)">
+            <span>📍</span>
+            <input id="headerLocationInput" type="text" placeholder="Type area (e.g. Attapur, Mehdipatnam)" oninput="handleLocationTyping(this.value)" onfocus="handleLocationTyping(this.value)" />
+            <div id="locSuggestionsBox" class="loc-suggestions"></div>
+          </div>
+
+          <button type="button" class="btn-ambulance" onclick="openAmbulanceModal()">
+            🚑 Emergency Ambulance
+          </button>
+
+          <div class="profile-menu-wrap">
+            <button type="button" class="profile-trigger-btn" onclick="toggleProfileDropdown()">
+              <span id="profileAvatarMini" class="profile-avatar-mini">GU</span>
+              <span id="profileBtnLabel">Guest User</span>
+              <span>▾</span>
+            </button>
+            <div id="profileDropdown" class="profile-dropdown"></div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="nav-links" aria-label="Primary Navigation">
+        <a href="./index.html" class="nav-link">Home</a>
+        <a href="./categories.html" class="nav-link">Categories</a>
+        <a href="./bloodbank.html" class="nav-link">Blood Bank</a>
+        <a href="./costs.html" class="nav-link">Cost Estimator</a>
+        <a href="./locker.html" class="nav-link">Records</a>
+        <a href="./feedback.html" class="nav-link">Feedback</a>
+        <a href="./fitness.html" class="nav-link">Fitness Tracker</a>
+        <a href="./about.html" class="nav-link active" data-i18n="navAbout">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- HERO SECTION -->
+    <section class="hero-clean">
+      <span class="hero-kicker">PLATFORM OVERVIEW &amp; MISSION</span>
+      <h1>About HealthX</h1>
+      <p style="margin-bottom:0;">
+        Making healthcare easier to discover, understand, and access.
+        HealthX brings hospital discovery, doctor information,
+        surgery cost comparison, and digital health records together
+        in one convenient platform.
+      </p>
+    </section>
+
+    <!-- WHO WE ARE -->
+    <section>
+      <div class="section-header">
+        <div>
+          <h2>Who We Are</h2>
+          <p>Empowering patients and families with clear, organised healthcare information.</p>
+        </div>
+      </div>
+
+      <div class="card active-card">
+        <p style="font-size:14.5px;color:var(--navy-slate);line-height:1.75;">
+          HealthX is a healthcare platform concept designed to help
+          people make more informed healthcare decisions. Our goal
+          is to make essential healthcare information easier to find
+          and help users keep their medical history organised.
+        </p>
+      </div>
+    </section>
+
+    <!-- OUR MISSION, VISION & GOAL -->
+    <section>
+      <div class="section-header">
+        <div>
+          <h2>Our Mission, Vision &amp; Goal</h2>
+          <p>The core principles guiding the HealthX platform.</p>
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <article class="card">
+          <div>
+            <span class="badge-navy solid" style="margin-bottom:10px;">01 • MISSION</span>
+            <h3 style="font-size:18px;margin-bottom:6px;">Our Mission</h3>
+            <p style="font-size:13.5px;color:var(--navy-slate);line-height:1.65;">
+              Make healthcare information easier for everyone
+              to access and understand.
+            </p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="badge-navy solid" style="margin-bottom:10px;">02 • VISION</span>
+            <h3 style="font-size:18px;margin-bottom:6px;">Our Vision</h3>
+            <p style="font-size:13.5px;color:var(--navy-slate);line-height:1.65;">
+              Create a more connected healthcare experience
+              for patients and healthcare providers.
+            </p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="badge-navy solid" style="margin-bottom:10px;">03 • GOAL</span>
+            <h3 style="font-size:18px;margin-bottom:6px;">Our Goal</h3>
+            <p style="font-size:13.5px;color:var(--navy-slate);line-height:1.65;">
+              Help users discover hospitals, compare available
+              cost information, and organise medical records.
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- WHAT HEALTHX OFFERS -->
+    <section>
+      <div class="section-header">
+        <div>
+          <h2>What HealthX Offers</h2>
+          <p>Four connected capabilities in one patient-focused platform.</p>
+        </div>
+      </div>
+
+      <div class="grid-4">
+        <article class="card">
+          <div>
+            <span class="badge-navy" style="margin-bottom:10px;">DISCOVERY</span>
+            <h3 style="font-size:17px;margin-bottom:6px;">Hospital Discovery</h3>
+            <p style="font-size:13px;color:var(--navy-slate);line-height:1.6;">
+              Explore hospitals and available healthcare
+              information in one place.
+            </p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="badge-navy" style="margin-bottom:10px;">SPECIALISTS</span>
+            <h3 style="font-size:17px;margin-bottom:6px;">Doctor Search</h3>
+            <p style="font-size:13px;color:var(--navy-slate);line-height:1.6;">
+              Find doctor information and specialisations.
+            </p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="badge-navy" style="margin-bottom:10px;">TRANSPARENCY</span>
+            <h3 style="font-size:17px;margin-bottom:6px;">Surgery Cost Comparison</h3>
+            <p style="font-size:13px;color:var(--navy-slate);line-height:1.6;">
+              Compare available procedure cost information
+              to support informed decisions.
+            </p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="badge-navy" style="margin-bottom:10px;">HEALTH LOCKER</span>
+            <h3 style="font-size:17px;margin-bottom:6px;">Digital Health Records</h3>
+            <p style="font-size:13px;color:var(--navy-slate);line-height:1.6;">
+              Keep important medical reports and health
+              history organised.
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- OUR TEAM & HOSPITAL RESEARCH -->
+    <section>
+      <div class="section-header">
+        <div>
+          <h2>Our Team &amp; Hospital Research</h2>
+          <p>Real-world field insights gathered directly from hospitals, doctors, and patients.</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <p style="font-size:14px;color:var(--navy-slate);line-height:1.75;">
+          Our team visited hospitals and interacted with doctors
+          and patients to understand real-world healthcare
+          challenges. We listened to their experiences, gathered
+          valuable insights, and reviewed the difficulties people
+          face while accessing healthcare services. This groundwork
+          helped us identify opportunities for improvement and
+          shape HealthX into a concept focused on making healthcare
+          information more accessible, organised, and convenient.
+        </p>
+      </div>
+
+      <div class="grid-3">
+        <div class="card" style="padding:14px;">
+          <div class="team-photo">
+            <img src="./images/member1.jpg.jpeg" alt="HealthX team photo 1" />
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <div class="team-photo">
+            <img src="./images/member2.jpg.jpeg" alt="HealthX team photo 2" />
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <div class="team-photo">
+            <img src="./images/member3.jpg.jpeg" alt="HealthX team photo 3" />
+          </div>
+        </div>
+      </div>
+
+      <div class="team-details-grid">
+        <div class="card team-role-box">
+          <div>
+            <span class="badge-navy solid">LEADERSHIP</span>
+            <h3>Team Lead</h3>
+            <p>Mohammed Minhaal</p>
+          </div>
+        </div>
+
+        <div class="card team-role-box">
+          <div>
+            <span class="badge-navy solid">RESEARCH</span>
+            <h3>Research Team</h3>
+            <p>Ahmed Mufassir Sami, Yousuf Abdul Majid, Syed Zaahak Husain</p>
+          </div>
+        </div>
+
+        <div class="card team-role-box">
+          <div>
+            <span class="badge-navy solid">FIELD WORK</span>
+            <h3>Groundwork</h3>
+            <p>Zaheer Uddin, Yousuf Abdul Majid</p>
+          </div>
+        </div>
+
+        <div class="card team-role-box">
+          <div>
+            <span class="badge-navy solid">ENGINEERING</span>
+            <h3>Technical Team</h3>
+            <p>Syed Zaahak Hussain, Mohammed Minhaal</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL & TOAST (Required for Ambulance & Profile buttons in Header) -->
+  <div id="appModal" class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+    <div id="appModalContent" class="modal-box"></div>
+  </div>
+  <div id="toastBox" class="toast"></div>
+
+  <footer>
+    <div class="container" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div>&copy; 2026 <strong>HealthX</strong>. Healthcare information, made easier.</div>
+      <div>Transparent Healthcare, Right Around the Corner.</div>
+    </div>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
